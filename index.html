@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ginosko — Assumption Auditor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0e0e0e;
+    --surface: #161616;
+    --border: #242424;
+    --text: #e8e4dc;
+    --muted: #555;
+    --accent: #c8b89a;
+    --danger: #a0554a;
+    --user-bg: #1a1a1a;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  header {
+    width: 100%;
+    max-width: 720px;
+    padding: 18px 24px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  .logo {
+    font-family: 'DM Serif Display', serif;
+    font-size: 20px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+  .tagline {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    flex: 1;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  #new-session-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 5px 10px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: border-color 0.2s, color 0.2s;
+    white-space: nowrap;
+    user-select: none;
+  }
+  #new-session-btn:hover { border-color: var(--accent); color: var(--accent); }
+  #fund-lens-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 5px 8px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    outline: none;
+    transition: border-color 0.2s, color 0.2s;
+    max-width: 165px;
+  }
+  #fund-lens-select.active { border-color: var(--accent); color: var(--accent); }
+  #fund-lens-select option { background: var(--surface); color: var(--text); }
+  .session-badge {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: color 0.2s;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .session-badge:hover { color: var(--accent); }
+  .session-badge.has-memory { color: var(--accent); }
+  #chat {
+    flex: 1;
+    width: 100%;
+    max-width: 720px;
+    overflow-y: auto;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+  #chat::-webkit-scrollbar { width: 3px; }
+  #chat::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .msg { display: flex; flex-direction: column; gap: 4px; animation: fadeUp 0.25s ease; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .msg.user { align-items: flex-end; }
+  .msg.assistant { align-items: flex-start; }
+  .sender {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0 2px;
+  }
+  .bubble {
+    max-width: 90%;
+    padding: 13px 17px;
+    font-size: 14px;
+    line-height: 1.8;
+    letter-spacing: 0.01em;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user .bubble {
+    background: var(--user-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    border-bottom-right-radius: 1px;
+  }
+  .msg.assistant .bubble {
+    background: transparent;
+    border-left: 2px solid var(--accent);
+    padding-left: 16px;
+    border-radius: 0;
+  }
+  .bubble.error {
+    border-left-color: var(--danger);
+  }
+  .bubble .retry-btn {
+    display: inline-block;
+    margin-top: 8px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--accent);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 5px 12px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: border-color 0.2s;
+  }
+  .bubble .retry-btn:hover { border-color: var(--accent); }
+  .file-tag {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 2px 7px;
+    margin-bottom: 8px;
+    letter-spacing: 0.05em;
+    opacity: 0.7;
+  }
+  .typing-wrap { border-left: 2px solid var(--border); padding: 14px 16px; display: flex; gap: 5px; align-items: center; }
+  .dot {
+    width: 4px; height: 4px;
+    background: var(--muted);
+    border-radius: 50%;
+    animation: blink 1.3s infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.15s; }
+  .dot:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1); }
+  }
+  #input-area {
+    width: 100%;
+    max-width: 720px;
+    border-top: 1px solid var(--border);
+    padding: 12px 24px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  #file-strip { display: none; gap: 8px; flex-wrap: wrap; margin-bottom: 2px; }
+  #file-strip.visible { display: flex; }
+  .file-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+    animation: fadeUp 0.2s ease;
+  }
+  .file-chip .remove {
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    transition: color 0.15s;
+  }
+  .file-chip .remove:hover { color: var(--text); }
+  .input-row { display: flex; gap: 10px; align-items: flex-end; }
+  #upload-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 18px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, opacity 0.2s;
+    align-self: flex-end;
+    line-height: 1;
+    flex-shrink: 0;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 42px;
+  }
+  #upload-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  #upload-btn.active { border-color: var(--accent); color: var(--accent); }
+  #upload-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #file-input { display: none; }
+  .file-hint {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    margin-top: 2px;
+    display: none;
+  }
+  .file-hint.visible { display: block; }
+  #input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    padding: 12px 15px;
+    resize: none;
+    min-height: 44px;
+    max-height: 160px;
+    outline: none;
+    letter-spacing: 0.01em;
+    line-height: 1.6;
+    transition: border-color 0.2s;
+  }
+  #input:focus { border-color: var(--accent); }
+  #input::placeholder { color: var(--muted); }
+  #send {
+    background: var(--accent);
+    border: none;
+    border-radius: 4px;
+    color: #0e0e0e;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 12px 18px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+    align-self: flex-end;
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: center;
+  }
+  #send:hover { opacity: 0.85; }
+  #send:disabled { opacity: 0.35; cursor: not-allowed; }
+  .disclaimer {
+    font-size: 10px;
+    color: var(--muted);
+    text-align: center;
+    padding-bottom: 6px;
+    letter-spacing: 0.04em;
+    width: 100%;
+    max-width: 720px;
+  }
+  .toast {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    padding: 8px 16px;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.25s;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 10;
+  }
+  .toast.show { opacity: 1; }
+  .toast .undo-link {
+    color: var(--accent);
+    cursor: pointer;
+    margin-left: 8px;
+    pointer-events: all;
+  }
+  .toast .undo-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">Ginosko</span>
+  <span class="tagline">assumption auditor</span>
+  <div class="header-right">
+    <button id="new-session-btn" title="Start a new session">+ new</button>
+    <select id="fund-lens-select">
+      <option value="">— fund lens —</option>
+      <option value="yc">YC</option>
+      <option value="do-ventures">Do Ventures · SEA</option>
+      <option value="wavemaker">Wavemaker</option>
+      <option value="other">Other / Custom</option>
+    </select>
+    <span class="session-badge" id="session-badge">— no memory</span>
+  </div>
+</header>
+
+<div id="chat"></div>
+
+<div id="input-area">
+  <div id="file-strip"></div>
+  <div class="file-hint" id="file-hint">PDF, TXT, images up to 20MB (max 5 files)</div>
+  <div class="input-row">
+    <input type="file" id="file-input" accept=".pdf,.txt,image/*" multiple>
+    <button id="upload-btn" title="Upload documents">⊕</button>
+    <textarea id="input" placeholder="Describe your idea, upload documents, or ask anything..." rows="1"></textarea>
+    <button id="send">Send</button>
+  </div>
+</div>
+<div class="disclaimer">for founders · not a validator · not an advisor</div>
+<div class="toast" id="toast"></div>
+
+<script>
+  const chatEl = document.getElementById('chat');
+  const inputEl = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const uploadBtn = document.getElementById('upload-btn');
+  const fileInput = document.getElementById('file-input');
+  const fileStrip = document.getElementById('file-strip');
+  const fileHint = document.getElementById('file-hint');
+  const sessionBadge = document.getElementById('session-badge');
+  const fundLensSelect = document.getElementById('fund-lens-select');
+  const newSessionBtn = document.getElementById('new-session-btn');
+  const toastEl = document.getElementById('toast');
+
+  let messages = [];
+  let isLoading = false;
+  let turnCount = 0;
+  let pendingFiles = [];
+  let processingFiles = false;
+  let lastFailedPayload = null;
+  const MAX_FILE_SIZE_MB = 20;
+  const MAX_FILE_COUNT = 5;
+
+  // ── Memory ──────────────────────────────────────────────────
+  function loadMemory() {
+    try { return JSON.parse(localStorage.getItem('ginosko_memory') || 'null'); }
+    catch { return null; }
+  }
+
+  function saveMemory(data) {
+    try {
+      localStorage.setItem('ginosko_memory', JSON.stringify(data));
+      const history = JSON.parse(localStorage.getItem('ginosko_sessions') || '[]');
+      history.push({ timestamp: new Date().toISOString(), ...data });
+      if (history.length > 50) history.shift();
+      localStorage.setItem('ginosko_sessions', JSON.stringify(history));
+    } catch {}
+  }
+
+  let clearedMemoryBackup = null;
+
+  function clearMemory(silent = false) {
+    const current = loadMemory();
+    if (current) clearedMemoryBackup = current;
+    localStorage.removeItem('ginosko_memory');
+    updateBadge(null);
+    if (!silent) {
+      showToast('Memory cleared.', !!clearedMemoryBackup);
+    }
+  }
+
+  function undoClearMemory() {
+    if (clearedMemoryBackup) {
+      saveMemory(clearedMemoryBackup);
+      updateBadge(clearedMemoryBackup);
+      clearedMemoryBackup = null;
+      showToast('Memory restored.');
+    }
+  }
+
+  function updateBadge(memory) {
+    if (memory) {
+      sessionBadge.textContent = '↩ memory — click to clear';
+      sessionBadge.classList.add('has-memory');
+    } else {
+      sessionBadge.textContent = '— no memory';
+      sessionBadge.classList.remove('has-memory');
+    }
+  }
+
+  sessionBadge.addEventListener('click', () => {
+    if (loadMemory()) {
+      if (confirm('Clear memory from last session?')) clearMemory();
+    }
+  });
+
+  // ── New Session ─────────────────────────────────────────────
+  newSessionBtn.addEventListener('click', () => {
+    if (messages.length > 2) {
+      if (!confirm('Start a completely new session? Current conversation will be lost.')) return;
+    }
+    messages = [];
+    turnCount = 0;
+    pendingFiles = [];
+    lastFailedPayload = null;
+    chatEl.innerHTML = '';
+    renderFileStrip();
+    clearMemory(true);
+    init();
+  });
+
+  // ── Fund Lens (persist to localStorage) ─────────────────────
+  function saveFundLens(val) {
+    try { localStorage.setItem('ginosko_fund_lens', val); } catch {}
+  }
+
+  function loadFundLens() {
+    try { return localStorage.getItem('ginosko_fund_lens') || ''; } catch { return ''; }
+  }
+
+  const savedLens = loadFundLens();
+  if (savedLens) {
+    const option = Array.from(fundLensSelect.options).find(o => o.value === savedLens);
+    if (option) {
+      fundLensSelect.value = savedLens;
+      fundLensSelect.classList.add('active');
+    }
+  }
+
+  fundLensSelect.addEventListener('change', () => {
+    if (fundLensSelect.value === 'other') {
+      const custom = prompt('Describe your target investor in 1-2 sentences:');
+      if (custom) {
+        const opt = document.createElement('option');
+        opt.value = custom;
+        opt.textContent = custom.slice(0, 35) + (custom.length > 35 ? '…' : '');
+        opt.selected = true;
+        fundLensSelect.appendChild(opt);
+        saveFundLens(custom);
+        fundLensSelect.classList.add('active');
+      } else {
+        fundLensSelect.value = loadFundLens() || '';
+        fundLensSelect.classList.toggle('active', !!fundLensSelect.value);
+        return;
+      }
+    }
+    saveFundLens(fundLensSelect.value);
+    fundLensSelect.classList.toggle('active', !!fundLensSelect.value);
+  });
+
+  function getActiveFundLenses() {
+    const val = fundLensSelect.value;
+    return val ? [val] : [];
+  }
+
+  // ── Toast ────────────────────────────────────────────────────
+  let toastTimer = null;
+
+  function showToast(msg, showUndo = false) {
+    if (toastTimer) clearTimeout(toastTimer);
+    if (showUndo) {
+      toastEl.innerHTML = `${msg} <span class="undo-link" id="undo-toast">Undo</span>`;
+      toastEl.classList.add('show');
+      document.getElementById('undo-toast').addEventListener('click', () => {
+        undoClearMemory();
+        toastEl.classList.remove('show');
+      });
+    } else {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+    }
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500);
+  }
+
+  // ── File handling ────────────────────────────────────────────
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        reject(new Error(`File "${file.name}" exceeds ${MAX_FILE_SIZE_MB}MB limit.`));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => resolve({
+        name: file.name,
+        base64: reader.result.split(',')[1],
+        mediaType: file.type || 'application/pdf'
+      });
+      reader.onerror = () => reject(new Error(`Failed to read "${file.name}".`));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderFileStrip() {
+    fileStrip.innerHTML = '';
+    const hasFiles = pendingFiles.length > 0;
+    if (!hasFiles) {
+      fileStrip.classList.remove('visible');
+      fileHint.classList.remove('visible');
+      uploadBtn.classList.remove('active');
+      uploadBtn.innerHTML = '⊕'; // reset icon
+      return;
+    }
+    fileStrip.classList.add('visible');
+    fileHint.classList.add('visible');
+    uploadBtn.classList.add('active');
+    pendingFiles.forEach((f, i) => {
+      const chip = document.createElement('div');
+      chip.className = 'file-chip';
+      const name = f.name.length > 28 ? f.name.slice(0, 28) + '…' : f.name;
+      chip.innerHTML = `📄 ${name} <span class="remove" data-i="${i}">✕</span>`;
+      chip.querySelector('.remove').addEventListener('click', () => {
+        pendingFiles.splice(i, 1);
+        renderFileStrip();
+      });
+      fileStrip.appendChild(chip);
+    });
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const files = Array.from(fileInput.files);
+    if (pendingFiles.length + files.length > MAX_FILE_COUNT) {
+      showToast(`Maximum ${MAX_FILE_COUNT} files per upload.`);
+      fileInput.value = '';
+      return;
+    }
+
+    processingFiles = true;
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = '<span class="spinner"></span>';
+
+    try {
+      const reads = await Promise.all(files.map(readFile));
+      pendingFiles.push(...reads);
+    } catch (err) {
+      showToast(err.message);
+    }
+
+    processingFiles = false;
+    uploadBtn.disabled = false;
+    uploadBtn.innerHTML = '⊕';
+    fileInput.value = '';
+    renderFileStrip();
+  });
+
+  uploadBtn.addEventListener('click', () => {
+    if (!processingFiles) fileInput.click();
+  });
+
+  // ── UI helpers ───────────────────────────────────────────────
+  function addMsg(role, text, fileNames = [], isError = false) {
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    const sender = document.createElement('div');
+    sender.className = 'sender';
+    sender.textContent = role === 'user' ? 'you' : 'ginosko';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    if (isError) bubble.classList.add('error');
+
+    if (fileNames.length > 0) {
+      fileNames.forEach(n => {
+        const tag = document.createElement('div');
+        tag.className = 'file-tag';
+        tag.textContent = `📄 ${n}`;
+        bubble.appendChild(tag);
+      });
+    }
+
+    bubble.appendChild(document.createTextNode(text));
+    div.appendChild(sender);
+    div.appendChild(bubble);
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return bubble;
+  }
+
+  function showTyping(extraText = '') {
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+    div.id = 'typing';
+    const wrap = document.createElement('div');
+    wrap.className = 'typing-wrap';
+    wrap.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+    if (extraText) {
+      const span = document.createElement('span');
+      span.style.fontSize = '10px';
+      span.style.color = 'var(--muted)';
+      span.style.marginLeft = '8px';
+      span.textContent = extraText;
+      wrap.appendChild(span);
+    }
+    div.appendChild(wrap);
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function removeTyping() {
+    const el = document.getElementById('typing');
+    if (el) el.remove();
+  }
+
+  // ── Send / Retry ─────────────────────────────────────────────
+  async function send(retryPayload = null) {
+    if (isLoading) return;
+
+    let filesToSend, fileNames, userText;
+
+    if (retryPayload) {
+      filesToSend = retryPayload.filesToSend;
+      fileNames = retryPayload.fileNames;
+      userText = retryPayload.userText;
+      const errorBubble = document.querySelector('.bubble.error')?.parentElement;
+      if (errorBubble) errorBubble.remove();
+    } else {
+      const text = inputEl.value.trim();
+      if ((!text && pendingFiles.length === 0) || isLoading) return;
+
+      filesToSend = [...pendingFiles];
+      fileNames = filesToSend.map(f => f.name);
+      pendingFiles = [];
+      renderFileStrip();
+
+      userText = text || `[Uploaded ${fileNames.length} document(s) for audit]`;
+      messages.push({ role: 'user', content: userText });
+      addMsg('user', userText, fileNames);
+    }
+
+    isLoading = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending…';
+    if (!retryPayload) {
+      inputEl.value = '';
+      inputEl.style.height = 'auto';
+    }
+    const hasFiles = filesToSend && filesToSend.length > 0;
+    showTyping(hasFiles ? 'Processing documents…' : '');
+
+    lastFailedPayload = { filesToSend, fileNames, userText };
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages,
+          memory: loadMemory(),
+          turnCount,
+          fileData: filesToSend?.length > 0 ? filesToSend : null,
+          fundLenses: getActiveFundLenses()
+        })
+      });
+
+      const data = await res.json();
+      removeTyping();
+
+      if (!res.ok) throw new Error(data.error || 'Server error');
+
+      const reply = data.content || 'Something went wrong. Please try again.';
+
+      if (data.sessionData) {
+        saveMemory(data.sessionData);
+        updateBadge(data.sessionData);
+      }
+
+      turnCount++;
+      messages.push({ role: 'assistant', content: reply });
+      addMsg('assistant', reply);
+      lastFailedPayload = null;
+
+    } catch (err) {
+      removeTyping();
+      showToast(err.message);
+      const bubble = addMsg('assistant', 'Something went wrong. Please try again.', [], true);
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'retry-btn';
+      retryBtn.textContent = '↻ Retry';
+      retryBtn.addEventListener('click', () => send(lastFailedPayload));
+      bubble.appendChild(retryBtn);
+    }
+
+    isLoading = false;
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send';
+    if (!retryPayload) inputEl.focus();
+  }
+
+  // ── Input behavior ───────────────────────────────────────────
+  inputEl.addEventListener('input', () => {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+  });
+
+  inputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+
+  inputEl.addEventListener('focus', () => {
+    setTimeout(() => {
+      const lastMsg = chatEl.querySelector('.msg:last-child');
+      if (lastMsg) lastMsg.scrollIntoView({ block: 'end', behavior: 'smooth' });
+      else chatEl.scrollTop = chatEl.scrollHeight;
+    }, 300);
+  });
+
+  sendBtn.addEventListener('click', () => send());
+
+  // ── Init ─────────────────────────────────────────────────────
+  async function init() {
+    const memory = loadMemory();
+    updateBadge(memory);
+
+    const initContent = memory
+      ? `start — memory from last session: ${JSON.stringify(memory)}`
+      : 'start';
+
+    isLoading = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending…';
+    showTyping();
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: initContent }],
+          memory,
+          turnCount: 0,
+          fileData: null,
+          fundLenses: getActiveFundLenses()
+        })
+      });
+
+      const data = await res.json();
+      removeTyping();
+
+      const reply = data.content || 'Something went wrong. Please try again.';
+      messages = [{ role: 'user', content: initContent }];
+      messages.push({ role: 'assistant', content: reply });
+      addMsg('assistant', reply);
+
+    } catch {
+      removeTyping();
+      addMsg('assistant', 'Something went wrong. Please try again.', [], true);
+    }
+
+    isLoading = false;
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send';
+  }
+
+  init();
+</script>
+</body>
+</html>
