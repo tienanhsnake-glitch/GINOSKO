@@ -1,4 +1,4 @@
-// api/chat.js — Ginosko v2.4 (Production + Detailed Fund Lens from Public Thesis)
+// api/chat.js — Ginosko v2.4.2 (Language fix: conversation language follows user, not documents)
 // Deploy on Vercel. Set ANTHROPIC_API_KEY in environment variables.
 
 export default async function handler(req, res) {
@@ -12,18 +12,11 @@ export default async function handler(req, res) {
   try {
     const { messages, memory, turnCount = 0, fileData, fundLenses = [] } = req.body;
 
-    // ── File validation ──────────────────────────────────────
     if (fileData && Array.isArray(fileData)) {
-      if (fileData.length > 5) {
-        return res.status(400).json({ error: 'Maximum 5 files per upload.' });
-      }
+      if (fileData.length > 5) return res.status(400).json({ error: 'Maximum 5 files per upload.' });
       for (const f of fileData) {
-        if (!f.base64 || !f.mediaType) {
-          return res.status(400).json({ error: 'Each file must have base64 and mediaType.' });
-        }
-        if (f.base64.length > 28_000_000) {
-          return res.status(400).json({ error: `File "${f.name || 'unknown'}" exceeds 20MB.` });
-        }
+        if (!f.base64 || !f.mediaType) return res.status(400).json({ error: 'Each file must have base64 and mediaType.' });
+        if (f.base64.length > 28_000_000) return res.status(400).json({ error: `File "${f.name || 'unknown'}" exceeds 20MB.` });
       }
     }
 
@@ -31,7 +24,6 @@ export default async function handler(req, res) {
     const hasDocuments = fileData && fileData.length > 0;
     const useAuditOverlay = isFirstTurn || hasDocuments;
 
-    // ── Memory block ─────────────────────────────────────────
     const memoryBlock = memory ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 MEMORY FROM LAST SESSION
@@ -47,7 +39,6 @@ HOW TO USE:
 - Treat core blindspot as hypothesis, not fact.
 ` : 'No memory. Fresh session.';
 
-    // ── Turn block ───────────────────────────────────────────
     const turnBlock = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 SESSION STATE
@@ -56,9 +47,16 @@ Turn: ${turnCount}   Mode: ${hasDocuments ? 'QUICK AUDIT' : 'DEEP MIRROR'}
 ${!hasDocuments && isFirstTurn ? '(No documents. Use Deep Mirror from start.)' : ''}
 `;
 
-    // ── CORE PROMPT (gửi mọi turn) ───────────────────────────
     const CORE_PROMPT = `You are Ginosko — Assumption Auditor for founders.
-LANGUAGE: Detect user language. Vietnamese → casual "mày/tao". English → casual "you/I". Never mix.
+
+LANGUAGE (CRITICAL — READ FIRST):
+- The conversation language is determined by the USER'S FIRST TEXT MESSAGE, NOT by the documents uploaded.
+- If the user's first message is in Vietnamese → respond in Vietnamese (casual "mày/tao") for the ENTIRE session, including the audit report.
+- If the user's first message is in English → respond in English (casual "you/I") for the entire session.
+- Documents may be in any language — that does NOT change the conversation language.
+- Never mix languages in the same response.
+- If the user switches language mid-session, follow the switch from that point onward.
+
 You are NOT a coach, validator, or advisor. You help founders see assumptions they haven't questioned and hold them there until they look.
 
 ${memoryBlock}
@@ -69,7 +67,7 @@ BEHAVIORAL PRIMITIVES (Deep Mirror):
 • Tension Hold — reflect stopping point. "Mày vừa nói [X] — rồi dừng lại ở đó."
 • Doc vs Reality Gap — "Trong tài liệu mày viết [X]. Nhưng mày vừa nói [Y]. Cái nào là thật?"
 • Self-Realization — place founder where assumption becomes visible.
-• 3-Step Confrontation — never skip. "Mày quay lại chỗ này rồi → Có giả định nào chưa nhìn thẳng? → Nếu sai thì sao?"
+• 3-Step Confrontation — never skip.
 • Insight is behavior, not words.
 • Safe Exit — "Hôm nay dừng ở đây. Cái này không mất."
 
@@ -91,7 +89,6 @@ SESSION CLOSE — when assumption confronted, or "không biết" twice, or same 
   "progression_note": "stable / unchanged / regression / deeper — with 1-line reason"
 }`;
 
-    // ── AUDIT OVERLAY (chỉ khi cần) ──────────────────────────
     let AUDIT_OVERLAY = '';
     if (useAuditOverlay) {
       const fundLensesPrompt = fundLenses.length > 0
@@ -153,12 +150,22 @@ CRITICAL RULES:
 7. Traction Quality & Retention — Real cohorts, not signups?
 8. Moat — How long for well-resourced competitor to copy?
 
-${fundLensesPrompt}`;
+${fundLensesPrompt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION OPEN
+━━━━━━━━━━━━━━━━━━━━━━━━━
+- Documents uploaded → Run audit immediately. No warmup.
+- No documents, no memory → Pick one randomly:
+  Vietnamese: "Idea của mày đang đứng trên giả định nào mà mày chưa thật sự kiểm tra?" / "Nếu phần quan trọng nhất trong thesis của mày là sai — phần nào đó sẽ là?" / "Mày đang build cho ai — và mày đã nói chuyện với họ chưa?" / "Điều gì trong idea của mày mà mày chưa dám hỏi thẳng bản thân?"
+  English: "What's the assumption your whole idea depends on that you haven't actually tested?" / "If the most important part of your thesis is wrong — which part would it be?" / "Who are you building this for — and have you actually talked to them?" / "What's the thing about your idea you haven't asked yourself directly?"
+- Memory exists → "Lần trước mày đang kẹt ở [unresolved_assumption]. Có gì thay đổi không?" / "Last time you were stuck on [unresolved_assumption]. Has anything shifted?"
+- Always ask exactly ONE opening line, then stop and wait.
+`;
     }
 
     const SYSTEM_PROMPT = CORE_PROMPT + (AUDIT_OVERLAY || '');
 
-    // ── Process messages with files ──────────────────────────
     const processedMessages = messages.map((msg, index) => {
       if (index === 0 && msg.role === 'user' && hasDocuments) {
         return {
@@ -166,11 +173,7 @@ ${fundLensesPrompt}`;
           content: [
             ...fileData.map(f => ({
               type: 'document',
-              source: {
-                type: 'base64',
-                media_type: f.mediaType || 'application/pdf',
-                data: f.base64
-              }
+              source: { type: 'base64', media_type: f.mediaType || 'application/pdf', data: f.base64 }
             })),
             { type: 'text', text: msg.content || `[Uploaded ${fileData.length} document(s) for audit]` }
           ]
@@ -179,10 +182,8 @@ ${fundLensesPrompt}`;
       return msg;
     });
 
-    // ── Dynamic tokens ───────────────────────────────────────
     const maxTokens = useAuditOverlay ? 2500 : 1200;
 
-    // ── Call Anthropic ───────────────────────────────────────
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -207,18 +208,13 @@ ${fundLensesPrompt}`;
     const data = await response.json();
     const fullText = data.content[0].text;
 
-    // ── Extract session JSON ─────────────────────────────────
     const sessionMatch = fullText.match(/\[END SESSION\]\s*(\{[\s\S]*\})/);
     let displayText = fullText;
     let sessionData = null;
 
     if (sessionMatch) {
       displayText = fullText.replace(/\[END SESSION\][\s\S]*/, '').trim();
-      try {
-        sessionData = JSON.parse(sessionMatch[1]);
-      } catch (e) {
-        console.warn('Session JSON parse failed');
-      }
+      try { sessionData = JSON.parse(sessionMatch[1]); } catch (e) { console.warn('Session JSON parse failed'); }
     }
 
     return res.status(200).json({ content: displayText, sessionData });
@@ -229,7 +225,6 @@ ${fundLensesPrompt}`;
   }
 }
 
-// ── Fund lens detail (dựa trên thesis thật, public) ─────────────
 function getFundLensDetail(lens) {
   const normalized = lens.toLowerCase().replace(/\s+/g, '-');
   const lenses = {
