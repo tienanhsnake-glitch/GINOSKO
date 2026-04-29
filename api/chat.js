@@ -103,7 +103,7 @@ Only ONE opening.`;
     const SYSTEM_PROMPT = CORE_PROMPT + (AUDIT_OVERLAY || '');
 
     // ── Token-saving: trim message history to last 16 ────────
-    const trimmedMessages = messages.length > 12 ? messages.slice(-16) : messages;
+    const trimmedMessages = messages.length > 16 ? messages.slice(-16) : messages;
 
     // ── Process messages with files only on first turn ───────
     const processedMessages = trimmedMessages.map((msg, index) => {
