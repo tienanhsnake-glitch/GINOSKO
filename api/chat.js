@@ -1,4 +1,4 @@
-// api/chat.js — Ginosko v2.5.1 (Token Optimized + Auto-strip old files to prevent timeout)
+// api/chat.js — Ginosko v2.6 (Stable: Fixed Model Name, Payload Limit, Array Bug)
 // Deploy on Vercel. Set ANTHROPIC_API_KEY in environment variables.
 
 export default async function handler(req, res) {
@@ -17,7 +17,10 @@ export default async function handler(req, res) {
       if (fileData.length > 5) return res.status(400).json({ error: 'Maximum 5 files per upload.' });
       for (const f of fileData) {
         if (!f.base64 || !f.mediaType) return res.status(400).json({ error: 'Each file must have base64 and mediaType.' });
-        if (f.base64.length > 28_000_000) return res.status(400).json({ error: `File "${f.name || 'unknown'}" exceeds 20MB.` });
+        // Vercel Hobby giới hạn Body là 4.5MB, nên file gốc cần rất nhẹ (~3MB)
+        if (f.base64.length > 4_000_000) { 
+          return res.status(400).json({ error: `File "${f.name || 'unknown'}" exceeds 3MB limit.` });
+        }
       }
     }
 
@@ -31,12 +34,10 @@ MEMORY: unresolved="${memory.unresolved_assumption || 'none'}" avoidance="${memo
 USE: Approach unresolved from nearby. Flag avoidance in new words. Blindspot = hypothesis.
 ` : 'No memory.';
 
-    // ── Turn block ───────────────────────────────────────────
     const turnBlock = `Turn ${turnCount}. ${hasDocuments && useAuditOverlay ? 'QUICK AUDIT' : 'DEEP MIRROR'}`;
 
-    // ── CORE PROMPT (gửi mọi turn) ───────────────────────────
+    // ── CORE PROMPT ─────────────────────────────────────────
     const CORE_PROMPT = `You are Ginosko — Assumption Auditor for founders.
-
 LANGUAGE: Follow user's first message language. Vietnamese → "mày/tao". English → "you/I". Documents don't change language. Never mix.
 
 ${memoryBlock}
@@ -58,7 +59,7 @@ CLOSE: confronted/"không biết" 2x/avoidance 3x → Summary → Pattern Mirror
 [END SESSION]
 {"unresolved_assumption":"...","avoidance_pattern":"...","core_blindspot":"...","progression_note":"..."}`;
 
-    // ── AUDIT OVERLAY (chỉ turn đầu + có file) ───────────────
+    // ── AUDIT OVERLAY ───────────────────────────────────────
     let AUDIT_OVERLAY = '';
     if (useAuditOverlay) {
       const fundLensesPrompt = fundLenses.length > 0
@@ -107,7 +108,7 @@ Only ONE opening.`;
       ? messages.slice(-MAX_HISTORY)
       : messages;
 
-    // Tự động xóa file base64 khỏi các message cũ (trừ message cuối cùng)
+    // FIXED: An toàn với cả String và Array Content
     recentMessages = recentMessages.map((msg, idx) => {
       const isLast = idx === recentMessages.length - 1;
       if (msg.role === 'user' && Array.isArray(msg.content) && !isLast) {
@@ -121,6 +122,14 @@ Only ONE opening.`;
     const processedMessages = recentMessages.map((msg, idx) => {
       const isLast = idx === recentMessages.length - 1;
       if (isLast && msg.role === 'user' && hasDocuments) {
+        // Lấy text từ message cuối, an toàn với cả string và array
+        let lastText = '';
+        if (typeof msg.content === 'string') lastText = msg.content;
+        else if (Array.isArray(msg.content)) {
+          const textPart = msg.content.find(c => c.type === 'text');
+          lastText = textPart?.text || '';
+        }
+        
         return {
           role: 'user',
           content: [
@@ -128,14 +137,14 @@ Only ONE opening.`;
               type: 'document',
               source: { type: 'base64', media_type: f.mediaType || 'application/pdf', data: f.base64 }
             })),
-            { type: 'text', text: typeof msg.content === 'string' ? msg.content : (msg.content.find(c => c.type === 'text')?.text || `[Uploaded ${fileData.length} document(s)]`) }
+            { type: 'text', text: lastText || `[Uploaded ${fileData.length} document(s)]` }
           ]
         };
       }
       return msg;
     });
 
-    // ── Dynamic tokens (reduced) ─────────────────────────────
+    // ── Dynamic tokens ───────────────────────────────────────
     const maxTokens = useAuditOverlay ? 2048 : 1024;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -146,7 +155,7 @@ Only ONE opening.`;
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-4-20250514', // FIXED: Đúng tên model
         max_tokens: maxTokens,
         system: SYSTEM_PROMPT,
         messages: processedMessages
