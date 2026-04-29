@@ -352,7 +352,7 @@
 
 <div id="input-area">
   <div id="file-strip"></div>
-  <div class="file-hint" id="file-hint">PDF, TXT, images up to 20MB (max 5 files)</div>
+  <div class="file-hint" id="file-hint">PDF, TXT, images up to 3MB (max 5 files)</div>
   <div class="input-row">
     <input type="file" id="file-input" accept=".pdf,.txt,image/*" multiple>
     <button id="upload-btn" title="Upload documents">⊕</button>
@@ -382,7 +382,7 @@
   let pendingFiles = [];
   let processingFiles = false;
   let lastFailedPayload = null;
-  const MAX_FILE_SIZE_MB = 20;
+  const MAX_FILE_SIZE_MB = 3;
   const MAX_FILE_COUNT = 5;
 
   // ── Memory ──────────────────────────────────────────────────
