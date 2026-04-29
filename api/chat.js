@@ -1,4 +1,4 @@
-// api/chat.js — Ginosko v2.5 (Token Optimized)
+// api/chat.js — Ginosko v2.5.1 (Token Optimized + Auto-strip old files to prevent timeout)
 // Deploy on Vercel. Set ANTHROPIC_API_KEY in environment variables.
 
 export default async function handler(req, res) {
@@ -21,10 +21,9 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── Token-saving: chỉ bật Audit Overlay ở turn đầu có file ──
     const isFirstTurn = turnCount === 0;
     const hasDocuments = fileData && fileData.length > 0;
-    const useAuditOverlay = isFirstTurn && hasDocuments; // CHANGED: chỉ turn đầu + có file
+    const useAuditOverlay = isFirstTurn && hasDocuments;
 
     // ── Memory block ─────────────────────────────────────────
     const memoryBlock = memory ? `
@@ -102,12 +101,26 @@ Only ONE opening.`;
 
     const SYSTEM_PROMPT = CORE_PROMPT + (AUDIT_OVERLAY || '');
 
-    // ── Token-saving: trim message history to last 16 ────────
-    const trimmedMessages = messages.length > 16 ? messages.slice(-16) : messages;
+    // ── Token-saving: trim history + auto-strip old file data ──
+    const MAX_HISTORY = 16;
+    let recentMessages = messages.length > MAX_HISTORY
+      ? messages.slice(-MAX_HISTORY)
+      : messages;
 
-    // ── Process messages with files only on first turn ───────
-    const processedMessages = trimmedMessages.map((msg, index) => {
-      if (index === 0 && msg.role === 'user' && useAuditOverlay) {
+    // Tự động xóa file base64 khỏi các message cũ (trừ message cuối cùng)
+    recentMessages = recentMessages.map((msg, idx) => {
+      const isLast = idx === recentMessages.length - 1;
+      if (msg.role === 'user' && Array.isArray(msg.content) && !isLast) {
+        const textPart = msg.content.find(c => c.type === 'text');
+        return textPart ? { role: 'user', content: textPart.text } : msg;
+      }
+      return msg;
+    });
+
+    // ── Process newest message with current fileData if any ──
+    const processedMessages = recentMessages.map((msg, idx) => {
+      const isLast = idx === recentMessages.length - 1;
+      if (isLast && msg.role === 'user' && hasDocuments) {
         return {
           role: 'user',
           content: [
@@ -115,7 +128,7 @@ Only ONE opening.`;
               type: 'document',
               source: { type: 'base64', media_type: f.mediaType || 'application/pdf', data: f.base64 }
             })),
-            { type: 'text', text: msg.content || `[Uploaded ${fileData.length} document(s)]` }
+            { type: 'text', text: typeof msg.content === 'string' ? msg.content : (msg.content.find(c => c.type === 'text')?.text || `[Uploaded ${fileData.length} document(s)]`) }
           ]
         };
       }
