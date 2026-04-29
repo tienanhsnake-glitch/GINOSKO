@@ -108,13 +108,8 @@
     gap: 24px;
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
-    outline: none; /* bỏ viền khi focus */
+    outline: none;
   }
-  /* Scrollbar rõ hơn */
-  #chat::-webkit-scrollbar { width: 6px; }
-  #chat::-webkit-scrollbar-track { background: transparent; }
-  #chat::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
-  #chat::-webkit-scrollbar-thumb:hover { background: #666; }
   .msg { display: flex; flex-direction: column; gap: 4px; animation: fadeUp 0.25s ease; }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .msg.user { align-items: flex-end; }
@@ -147,9 +142,7 @@
     padding-left: 16px;
     border-radius: 0;
   }
-  .bubble.error {
-    border-left-color: var(--danger);
-  }
+  .bubble.error { border-left-color: var(--danger); }
   .bubble .retry-btn {
     display: inline-block;
     margin-top: 8px;
@@ -742,13 +735,22 @@
   });
 
   inputEl.addEventListener('keydown', e => {
-    // Gửi bằng Enter nếu không giữ Shift
+    // Gửi bằng Enter (không Shift)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
       return;
     }
-    // Ctrl + mũi tên để scroll chat khi đang focus input
+
+    // Khi input trống: ↑/↓ để cuộn chat, không di chuyển con trỏ
+    if (inputEl.value === '' && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const direction = e.key === 'ArrowUp' ? -1 : 1;
+      chatEl.scrollBy({ top: direction * 80, behavior: 'smooth' });
+      return;
+    }
+
+    // Ctrl + mũi tên → luôn cuộn chat (dù input có chữ hay không)
     if (e.ctrlKey && e.key === 'ArrowUp') {
       e.preventDefault();
       chatEl.scrollBy({ top: -120, behavior: 'smooth' });
@@ -774,7 +776,7 @@
 
   sendBtn.addEventListener('click', () => send());
 
-  // ── Keyboard scroll for chat ─────────────────────────────────
+  // ── Keyboard scroll khi chat đang focus (không focus vào input) ──
   chatEl.tabIndex = 0;
   chatEl.addEventListener('click', () => chatEl.focus());
 
