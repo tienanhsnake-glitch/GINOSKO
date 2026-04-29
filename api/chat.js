@@ -1,242 +1,51 @@
-// api/chat.js — Ginosko v2.3.1 (Production Merged + Polished)
-// Deploy on Vercel. Set ANTHROPIC_API_KEY in environment variables.
-
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-  try {
-    const { messages, memory, turnCount = 0, fileData, fundLenses = [] } = req.body;
-
-    // ── File validation ──────────────────────────────────────
-    if (fileData && Array.isArray(fileData)) {
-      if (fileData.length > 5) {
-        return res.status(400).json({ error: 'Maximum 5 files per upload.' });
-      }
-      for (const f of fileData) {
-        if (!f.base64 || !f.mediaType) {
-          return res.status(400).json({ error: 'Each file must have base64 and mediaType.' });
-        }
-        if (f.base64.length > 28_000_000) {
-          return res.status(400).json({ error: `File "${f.name || 'unknown'}" exceeds 20MB.` });
-        }
-      }
-    }
-
-    const isFirstTurn = turnCount === 0;
-    const hasDocuments = fileData && fileData.length > 0;
-    const useAuditOverlay = isFirstTurn || hasDocuments;
-
-    // ── Memory block ─────────────────────────────────────────
-    const memoryBlock = memory ? `
-━━━━━━━━━━━━━━━━━━━━━━━━━
-MEMORY FROM LAST SESSION
-━━━━━━━━━━━━━━━━━━━━━━━━━
-• Unresolved assumption: "${memory.unresolved_assumption || 'none'}"
-• Avoidance pattern: "${memory.avoidance_pattern || 'unknown'}"
-• Core blindspot: "${memory.core_blindspot || 'none'}"
-• Progression: ${memory.progression_note || 'none'}
-
-HOW TO USE:
-- Avoid re-asking the unresolved assumption directly. Approach from nearby.
-- If same avoidance pattern appears in new words → use soft disruption.
-- Treat core blindspot as hypothesis, not fact.
-` : 'No memory. Fresh session.';
-
-    // ── Turn block ───────────────────────────────────────────
-    const turnBlock = `
-━━━━━━━━━━━━━━━━━━━━━━━━━
-SESSION STATE
-━━━━━━━━━━━━━━━━━━━━━━━━━
-Turn: ${turnCount}   Mode: ${hasDocuments ? 'QUICK AUDIT' : 'DEEP MIRROR'}
-${!hasDocuments && isFirstTurn ? '(No documents. Use Deep Mirror from start.)' : ''}
-`;
-
-    // ── CORE PROMPT (gửi mọi turn) ───────────────────────────
-    const CORE_PROMPT = `You are Ginosko — Assumption Auditor for founders.
-LANGUAGE: Detect user language. Vietnamese → casual "mày/tao". English → casual "you/I". Never mix.
-You are NOT a coach, validator, or advisor. You help founders see assumptions they haven't questioned and hold them there until they look.
-
-${memoryBlock}
-${turnBlock}
-
-BEHAVIORAL PRIMITIVES (Deep Mirror):
-• Soft Disruption — interrupt only repetition/rationalization. "Mày vừa quay lại điểm này."
-• Tension Hold — reflect stopping point. "Mày vừa nói [X] — rồi dừng lại ở đó."
-• Doc vs Reality Gap — "Trong tài liệu mày viết [X]. Nhưng mày vừa nói [Y]. Cái nào là thật?"
-• Self-Realization — place founder where assumption becomes visible.
-• 3-Step Confrontation — never skip. "Mày quay lại chỗ này rồi → Có giả định nào chưa nhìn thẳng? → Nếu sai thì sao?"
-• Insight is behavior, not words.
-• Safe Exit — "Hôm nay dừng ở đây. Cái này không mất."
-
-STYLE: Max 1 question per turn (Deep Mirror). Short sentences. No advice, no validation, no "great idea". One acknowledgment per session: "Cái đó không dễ để nhìn thẳng đâu."
-
-ANTI-REPETITION: If a question with the same target assumption has been asked this session, do not repeat it. Approach from a different angle or observe instead.
-
-SESSION CLOSE — when assumption confronted, or "không biết" twice, or same avoidance 3 times:
-1. Summary (2-3 lines): what founder came with → what shifted.
-2. Pattern Mirror: name HOW they thought.
-3. Carry Question: one question to sit with, not answer now.
-4. Output nothing but this JSON:
-
-[END SESSION]
-{
-  "unresolved_assumption": "the assumption they touched but didn't resolve",
-  "avoidance_pattern": "specific behavior, not topic",
-  "core_blindspot": "the assumption they haven't looked at directly",
-  "progression_note": "stable / unchanged / regression / deeper — with 1-line reason"
-}`;
-
-    // ── AUDIT OVERLAY (chỉ khi cần) ──────────────────────────
-    let AUDIT_OVERLAY = '';
-    if (useAuditOverlay) {
-      const fundLensesPrompt = fundLenses.length > 0
-        ? fundLenses.map(l => getFundLensDetail(l)).join('\n')
-        : 'No specific fund lens. After audit, ask founder which fund they target.';
-
-      AUDIT_OVERLAY = `
-━━━━━━━━━━━━━━━━━━━━━━━━━
-QUICK AUDIT MODE — ACTIVE
-━━━━━━━━━━━━━━━━━━━━━━━━━
-Strict execution chain (do not skip, do not reverse):
-1. List all major claims from ALL documents (verbatim quote + source file).
-2. For each claim, identify which of the 8 Core Universal Assumptions it touches.
-3. For each claim, check: is there evidence IN THE DOCUMENTS?
-4. Assign risk: FATAL (no evidence + thesis depends on it), HIGH RISK (thin evidence), REASONABLE (some evidence).
-5. Pick the top 3 most critical (FATAL > HIGH RISK).
-6. Output the report in EXACTLY this format:
-
---- GINOSKO ASSUMPTION AUDIT ---
-Fund Lens: ${fundLenses.length > 0 ? fundLenses.join(', ') : 'General (not specified)'}
-
-TOP 3 CRITICAL ASSUMPTIONS:
-
-1. [Assumption name] — [FATAL / HIGH RISK]
-   Claim: "[verbatim quote from document]"
-   Source: [file name, slide/page]
-   Depends on: [what must be true for this to hold]
-   Evidence in documents: [what's there — if none, say "No supporting data found in documents"]
-   If wrong: [specific, concrete consequence — 1-2 lines]
-   Fund lens note: [why this fund especially cares, or "universal"]
-
-2. [Assumption name] — [FATAL / HIGH RISK]
-   ... (same structure as above)
-
-3. [Assumption name] — [FATAL / HIGH RISK]
-   ... (same structure as above)
-
-MISSING INFORMATION (3 most critical gaps):
-- [Topic]: Why it matters. What's missing from the documents.
-- [Topic]: ...
-- [Topic]: ...
-
-OPENING QUESTION FOR DEEP MIRROR:
-"[One question that opens the deepest assumption — to sit with, not answer now.]"
-
-CRITICAL RULES:
-- Only use evidence actually present in the documents. If no evidence exists, state clearly: "No supporting data in documents."
-- Do not invent numbers. Do not guess. If unsure, flag it as HIGH RISK — never pretend it's verified.
-- After the report is fully delivered AND the founder has sent their next message, THEN ask: "Mày muốn đào sâu vào assumption nào trước?" and switch to Deep Mirror.
-- Do not pre-empt the founder's first reaction. Let them absorb the report first.
-
-8 CORE UNIVERSAL ASSUMPTIONS:
-1. Problem Truth — Real pain or invented? Who confirmed it?
-2. Willingness to Pay — Has anyone paid real money?
-3. Why You — Unique insight/access of this founder?
-4. Why Now — Why this moment, not earlier or later?
-5. Unit Economics — CAC/LTV logic, real numbers?
-6. Distribution — First channel tested? Cost?
-7. Traction Quality & Retention — Real cohorts, not signups?
-8. Moat — How long for well-resourced competitor to copy?
-
-${fundLensesPrompt}`;
-    }
-
-    const SYSTEM_PROMPT = CORE_PROMPT + (AUDIT_OVERLAY || '');
-
-    // ── Process messages with files ──────────────────────────
-    const processedMessages = messages.map((msg, index) => {
-      if (index === 0 && msg.role === 'user' && hasDocuments) {
-        return {
-          role: 'user',
-          content: [
-            ...fileData.map(f => ({
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: f.mediaType || 'application/pdf',
-                data: f.base64
-              }
-            })),
-            { type: 'text', text: msg.content || `[Uploaded ${fileData.length} document(s) for audit]` }
-          ]
-        };
-      }
-      return msg;
-    });
-
-    // ── Dynamic tokens ───────────────────────────────────────
-    const maxTokens = useAuditOverlay ? 2500 : 1200;
-
-    // ── Call Anthropic ───────────────────────────────────────
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: maxTokens,
-        system: SYSTEM_PROMPT,
-        messages: processedMessages
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('Anthropic error:', response.status, errText);
-      return res.status(500).json({ error: 'AI service temporarily unavailable.' });
-    }
-
-    const data = await response.json();
-    const fullText = data.content[0].text;
-
-    // ── Extract session JSON ─────────────────────────────────
-    const sessionMatch = fullText.match(/\[END SESSION\]\s*(\{[\s\S]*\})/);
-    let displayText = fullText;
-    let sessionData = null;
-
-    if (sessionMatch) {
-      displayText = fullText.replace(/\[END SESSION\][\s\S]*/, '').trim();
-      try {
-        sessionData = JSON.parse(sessionMatch[1]);
-      } catch (e) {
-        console.warn('Session JSON parse failed');
-      }
-    }
-
-    return res.status(200).json({ content: displayText, sessionData });
-
-  } catch (error) {
-    console.error('Ginosko handler error:', error);
-    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
-  }
-}
-
-// ── Fund lens detail ───────────────────────────────────────────
 function getFundLensDetail(lens) {
   const normalized = lens.toLowerCase().replace(/\s+/g, '-');
   const lenses = {
-    'yc': 'YC Lens: Founder quality > idea. Prioritize Why You + Traction. Skeptical of Why Now without evidence of fast growth loop.',
-    'do-ventures': 'Do Ventures / SEA Lens: Localization, early unit economics, regulatory awareness. Prioritize Distribution + Unit Economics. Skeptical of US-copied models.',
-    'wavemaker': 'Wavemaker Lens: B2B SaaS, gross margin >70%, scalability across SEA. Prioritize Moat + Willingness to Pay. Want LOI/paid pilots.',
-    'other': 'Custom Lens: Apply founder-described investor priorities.'
+    'yc': `YC Lens:
+    - Thesis: Back founders first, ideas second. Invest at pre-seed/seed stage, $500k for ~7%.
+    - What they truly want: "Relentlessly resourceful" founders. Clarity of thought above polish. Make fast progress on the right thing.
+    - Must-have traits (from Paul Graham): Determination > intelligence. Flexibility. Imagination. Ability to launch fast, talk to users, iterate.
+    - Red flags: Solo founders, slow progress between application and interview, inability to explain idea in 1-2 sentences.
+    - Key assumption checks:
+      • Founder-Market Fit: Why is THIS founder obsessed with THIS problem? (Domain expertise or unique insight?)
+      • Execution velocity: What have they built in the last 2 weeks? (Not months — weeks. YC measures progress in days.)
+      • User understanding: Have they talked to 50+ users? What did they learn? (Not surveys. Real conversations.)
+      • "Do things that don't scale": Evidence of manual, unscalable work to get early users? (YC loves founders who did things that don't scale.)
+    - Stage fit: Pre-seed, Seed. Pre-revenue is acceptable if founder quality and problem clarity are exceptional.
+    - Question style: Direct, speed-obsessed, allergic to over-planning. "What have you built this week?"`,
+
+    'do-ventures': `Do Ventures Lens:
+    - Thesis: Leverage Vietnam's favorable demographics (young population, rising middle class, rapid urbanization). Seed to Series B, check size varies.
+    - Core focus areas (from official website):
+      • Unlocking Growth in Emerging Markets: Consumer platforms riding Vietnam's demographic wave.
+      • Empowering SMEs in Digital Economy: B2B platforms helping SMEs digitize (cornerstone of Vietnam's GDP).
+      • Advancing Sustainability & Diversity: Female founders, climate solutions, inclusive leadership.
+    - Investment sectors: B2C platforms for young consumers, B2B platforms with regional scalability, AI-driven solutions, Climate & Sustainability.
+    - Red flags: US/EU business models copy-pasted without local adaptation. Team without understanding of Vietnamese consumer behavior or regulatory landscape. Ignoring SME segment (which drives Vietnam's economy).
+    - Key assumption checks:
+      • Local adaptation: How is this adapted to Vietnamese behavior (payment, logistics, trust, culture)? Not "SEA version of [US startup]".
+      • SME angle: Does this help Vietnamese SMEs? (If yes — strong signal. Do Ventures explicitly targets SME digitalization.)
+      • Demographics tailwind: Is this riding Vietnam's young consumer wave? (Median age ~31, rising middle class).
+      • Regulatory readiness: Any regulatory risk? (Fintech, edtech, healthtech require licenses in Vietnam.)
+      • Sustainability angle: Female founder? Diverse team? Climate impact? (Explicitly prioritized.)
+    - Stage fit: Seed to Series B. Need some traction (not idea-only).
+    - Question style: Local-context-rich, SME-aware, wants evidence of Vietnam-specific insight.`,
+
+    'wavemaker': `Wavemaker Lens:
+    - Thesis: "Opportunity = Value – Perception." Back unobvious, undervalued companies in Enterprise, Deep Tech, and Sustainability. Pre-seed to Series A in SEA.
+    - Portfolio: 85% enterprise/deep tech, 90%+ contribute to at least 1 UN Sustainable Development Goal. Over 200 SEA investments, US$600M AUM.
+    - Core belief (from Paul Santos, Managing Partner): "Can a company get to US$100M in real revenue? Generate US$40-50M in free cash flow at scale? That's what a unicorn looks like to us."
+    - What they truly want: Founders with insights others don't have. "What important truth do you believe that few people agree with?" (Peter Thiel question). Industry or technology that not many people know deeply.
+    - Red flags: Consumer/growth-oriented with no unit economics discipline. "Popular theme" startups (everyone is doing it). AI without deep tech differentiation. Vietnam-only with no SEA scalability path.
+    - Key assumption checks:
+      • Enterprise/deep tech fit: Is this B2B? Does it have proprietary technology? (Not a workflow tool anyone can build in 3 months.)
+      • Revenue at scale: Path to US$100M revenue? Free cash flow potential of US$40-50M at scale? (They think in these numbers.)
+      • Uniqueness: What insight does this founder have that few others share? (Not "AI for X" — what's the non-obvious truth?)
+      • Sustainability alignment: Which UN SDG does this contribute to? (Not mandatory but strongly preferred — 90% of portfolio does.)
+      • SEA scalability: Can this scale beyond one country? Indonesia, Philippines, Thailand?
+    - Stage fit: Pre-seed to Series A. Enterprise B2B focus means LOI/paid pilots matter more than consumer traction.
+    - Question style: Margin-obsessed, B2B-focused, wants contrarian insights, not popular narratives.`
   };
-  return lenses[normalized] || `Custom Lens: ${lens}`;
+
+  return lenses[normalized] || `Custom Lens: "${lens}" — Apply the founder's description of their target investor's priorities.`;
 }
