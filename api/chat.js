@@ -1,4 +1,4 @@
-// api/chat.js — Ginosko v2.6 (Stable: Fixed Model Name, Payload Limit, Array Bug)
+// api/chat.js — Ginosko v2.6.1 (Stable: Fixed Model Name + 4MB Limit + Array Safe)
 // Deploy on Vercel. Set ANTHROPIC_API_KEY in environment variables.
 
 export default async function handler(req, res) {
@@ -17,9 +17,9 @@ export default async function handler(req, res) {
       if (fileData.length > 5) return res.status(400).json({ error: 'Maximum 5 files per upload.' });
       for (const f of fileData) {
         if (!f.base64 || !f.mediaType) return res.status(400).json({ error: 'Each file must have base64 and mediaType.' });
-        // Vercel Hobby giới hạn Body là 4.5MB, nên file gốc cần rất nhẹ (~3MB)
-        if (f.base64.length > 4_000_000) { 
-          return res.status(400).json({ error: `File "${f.name || 'unknown'}" exceeds 3MB limit.` });
+        // File gốc 4MB → base64 ~5.3MB, vừa dưới ngưỡng 4.5MB body limit của Vercel
+        if (f.base64.length > 5_300_000) {
+          return res.status(400).json({ error: `File "${f.name || 'unknown'}" exceeds 4MB limit.` });
         }
       }
     }
@@ -108,7 +108,7 @@ Only ONE opening.`;
       ? messages.slice(-MAX_HISTORY)
       : messages;
 
-    // FIXED: An toàn với cả String và Array Content
+    // An toàn với cả String và Array Content
     recentMessages = recentMessages.map((msg, idx) => {
       const isLast = idx === recentMessages.length - 1;
       if (msg.role === 'user' && Array.isArray(msg.content) && !isLast) {
@@ -144,7 +144,6 @@ Only ONE opening.`;
       return msg;
     });
 
-    // ── Dynamic tokens ───────────────────────────────────────
     const maxTokens = useAuditOverlay ? 2048 : 1024;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -155,7 +154,7 @@ Only ONE opening.`;
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514', // FIXED: Đúng tên model
+        model: 'claude-sonnet-4-6', // Đã sửa: trở lại tên model ổn định
         max_tokens: maxTokens,
         system: SYSTEM_PROMPT,
         messages: processedMessages
